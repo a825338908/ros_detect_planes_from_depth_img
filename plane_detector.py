@@ -6,6 +6,7 @@ import open3d
 import cv2
 import matplotlib.pyplot as plt
 import copy
+import redis
 
 from utils.lib_io import read_yaml_file
 from utils.lib_ransac import PlaneModel, RansacPlane
@@ -15,7 +16,13 @@ from utils_rgbd.lib_open3d import wrap_open3d_point_cloud_with_my_functions
 from utils_rgbd.lib_plot_rgbd import drawMaskFrom2dPoints, draw3dArrowOnImage
 wrap_open3d_point_cloud_with_my_functions()
 
+
 MAX_OF_MAX_PLANE_NUMBERS = 5
+red =redis.Redis(host="127.0.0.1", port=6379)
+red.hset("detect_plane_config", "depth_thresh", "0.01")
+red.hset("detect_plane_config", "min_points", "400")
+red.hset("detect_plane_config", "iterations", "50")
+red.hset("detect_plane_config", "max_plane", "3")
 
 
 def subtract_points(points, indices_to_subtract):
@@ -141,21 +148,21 @@ class PlaneDetector(object):
             pcd {open3d.geometry.PointCloud}
         '''
 
-        rgbd_image = open3d.create_rgbd_image_from_color_and_depth(
-            color=open3d.Image(
+        rgbd_image = open3d.geometry.RGBDImage.create_from_color_and_depth(
+            color=open3d.geometry.Image(
                 cv2.cvtColor(color_img_resized, cv2.COLOR_BGR2RGB)),
-            depth=open3d.Image(depth_img_resized),
+            depth=open3d.geometry.Image(depth_img_resized),
             depth_scale=1.0/self._cfg.depth_unit,
             depth_trunc=self._cfg.depth_trunc,
             convert_rgb_to_intensity=False)
 
         cam_intrin = self._cam_intrin_resized.to_open3d_format()
-        pcd = open3d.create_point_cloud_from_rgbd_image(
+        pcd = open3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd_image,
             cam_intrin)
 
         if self._cfg.cloud_downsample_voxel_size > 0:
-            pcd = open3d.geometry.voxel_down_sample(
+            pcd = open3d.geometry.PointCloud.voxel_down_sample(
                 pcd, voxel_size=self._cfg.cloud_downsample_voxel_size)
 
         return pcd
@@ -178,12 +185,17 @@ class PlaneDetector(object):
         is_succeed, plane_weights, plane_pts_indices = ransac.fit(
             points,
             model=PlaneModel(),
-            n_pts_fit_model=3,
-            n_min_pts_inlier=cfg["min_points"],
-            max_iter=cfg["iterations"],
-            dist_thresh=cfg["dist_thresh"],
+            #n_pts_fit_model=3,
+            n_pts_fit_model=int(red.hget("detect_plane_config", "max_plane")),
+            #n_min_pts_inlier=cfg["min_points"],
+            n_min_pts_inlier=int(red.hget("detect_plane_config", "min_points")),
+            #max_iter=cfg["iterations"],
+            max_iter=int(red.hget("detect_plane_config", "iterations")),
+            #dist_thresh=cfg["dist_thresh"],
+            dist_thresh=float(red.hget("detect_plane_config", "depth_thresh")),
             is_print_res=cfg["is_print_res"],
         )
+        print(type(cfg["iterations"]))
 
         if not is_succeed:
             print("RANSAC Failed.")
@@ -298,7 +310,7 @@ class PlaneDetector(object):
 
 def calc_opposite_point(p0, p1, length=5.0, to_int=True):
     ''' p0 and p1 are two points.
-        Create a point p2 
+        Create a point p2
         so that the vector (p2, p0) and (p0, p1) are at the same line.
         length is the length of p2~p0.
     '''

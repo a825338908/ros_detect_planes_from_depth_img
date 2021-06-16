@@ -12,7 +12,7 @@ Publisher:
 Subscriber:
     class ColorImageSubscriber, has_image() & get_image()
     class DepthImageSubscriber, has_image() & get_image()
-    
+
 '''
 
 import rospy
@@ -24,7 +24,7 @@ from std_msgs.msg import Header
 import cv2
 import numpy as np
 import time
-import queue
+import Queue
 
 from abc import ABCMeta, abstractmethod  # Abstract class.
 # See: https: // stackoverflow.com/questions/13646245/is-it-possible-to-make-abstract-classes-in-python
@@ -125,7 +125,7 @@ class CameraInfoPublisher():
                 (2) height
                 (3) intrinsic_matrix
         Arguments:
-            intrinsic_matrix {1D list or 2D list}: 
+            intrinsic_matrix {1D list or 2D list}:
                 If 1D list, the data order is: column1, column2, column3.
                 (But ROS is row majored.)
         '''
@@ -163,9 +163,9 @@ class CameraInfoPublisher():
         if isinstance(intrinsic_matrix, list):
             K = intrinsic_matrix # column majored --> row majored.
             K = [
-                K[0], K[3], K[6], 
-                K[1], K[4], K[7], 
-                K[2], K[5], K[8], 
+                K[0], K[3], K[6],
+                K[1], K[4], K[7],
+                K[2], K[5], K[8],
             ]
         else: # row majored.
             K = self._2d_array_to_list(intrinsic_matrix)
@@ -187,7 +187,7 @@ class AbstractImageSubscriber(object):
         self._cv_bridge = CvBridge()
         self._sub = rospy.Subscriber(
             topic_name, Image, self._callback_of_image_subscriber)
-        self._imgs_queue = queue.Queue(maxsize=queue_size)
+        self._imgs_queue = Queue.Queue(maxsize=queue_size)
 
     @abstractmethod
     def _convert_ros_image_to_desired_image_format(self, ros_image):
@@ -223,6 +223,17 @@ class ColorImageSubscriber(AbstractImageSubscriber):
         ''' To np.ndarray np.uint8 BGR format. '''
         return self._cv_bridge.imgmsg_to_cv2(ros_image, "bgr8")
 
+
+class BiniaryImageSubscriber(AbstractImageSubscriber):
+    ''' RGB image subscriber. '''
+
+    def __init__(self, topic_name, queue_size=2):
+        super(BiniaryImageSubscriber, self).__init__(topic_name, queue_size)
+
+    def _convert_ros_image_to_desired_image_format(self, ros_image):
+        ''' To np.ndarray np.uint8 BGR format. '''
+        cv2_bgr8_img = self._cv_bridge.imgmsg_to_cv2(ros_image, "bgr8")
+        return cv2.cvtColor(cv2_bgr8_img, cv2.COLOR_BGR2GRAY)
 
 class DepthImageSubscriber(AbstractImageSubscriber):
     ''' Depth image subscriber. '''
